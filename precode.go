@@ -8,10 +8,6 @@ import (
 	"time"
 )
 
-const N = 10000
-
-var mu sync.Mutex
-
 // Generator генерирует последовательность чисел 1,2,3 и т.д. и
 // отправляет их в канал ch. При этом после записи в канал для каждого числа
 // вызывается функция fn. Она служит для подсчёта количества и суммы
@@ -40,13 +36,15 @@ func Worker(in <-chan int64, out chan<- int64) {
 	for number := range in {
 		out <- number
 	}
+	timer := time.NewTimer(10 * time.Millisecond)
+	<-timer.C
 }
 
 func main() {
 	chIn := make(chan int64)
 
 	// 3. Создание контекста
-	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Microsecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 
 	// для проверки будем считать количество и сумму отправленных чисел
@@ -55,10 +53,8 @@ func main() {
 
 	// генерируем числа, считая параллельно их количество и сумму
 	go Generator(ctx, chIn, func(i int64) {
-		mu.Lock()
 		inputSum += i
 		inputCount++
-		mu.Unlock()
 	})
 
 	// количество обрабатывающих горутин и каналов
@@ -82,15 +78,13 @@ func main() {
 	wg.Add(NumOut)
 	for i := 0; i < NumOut; i++ {
 		out := outs[i]
-		go func(amount *int64) {
+		go func(i int) {
 			defer wg.Done()
 			for num := range out {
 				chOut <- num
-				mu.Lock()
-				*amount += 1
-				mu.Unlock()
+				amounts[i] += 1
 			}
-		}(&amounts[i])
+		}(i)
 	}
 
 	go func() {
