@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"time"
 )
 
 // Generator генерирует последовательность чисел 1,2,3 и т.д. и
@@ -13,20 +14,38 @@ import (
 // сгенерированных чисел.
 func Generator(ctx context.Context, ch chan<- int64, fn func(int64)) {
 	// 1. Функция Generator
-	// ...
+	defer close(ch)
+	var i int64 = 1
+	for {
+		select {
+		case <-ctx.Done():
+			fmt.Println("Перестаём генерировать числа")
+			return
+		default:
+			ch <- i
+			fn(i)
+			i++
+		}
+	}
 }
 
 // Worker читает число из канала in и пишет его в канал out.
 func Worker(in <-chan int64, out chan<- int64) {
 	// 2. Функция Worker
-	// ...
+	defer close(out)
+	for number := range in {
+		out <- number
+	}
+	timer := time.NewTimer(10 * time.Millisecond)
+	<-timer.C
 }
 
 func main() {
 	chIn := make(chan int64)
 
 	// 3. Создание контекста
-	// ...
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
 
 	// для проверки будем считать количество и сумму отправленных чисел
 	var inputSum int64   // сумма сгенерированных чисел
@@ -38,8 +57,9 @@ func main() {
 		inputCount++
 	})
 
-	const NumOut = 5 // количество обрабатывающих горутин и каналов
-	// outs — слайс каналов, куда будут записываться числа из chIn
+	// количество обрабатывающих горутин и каналов
+	const NumOut = 5
+	// слайс каналов, куда будут записываться числа из chIn
 	outs := make([]chan int64, NumOut)
 	for i := 0; i < NumOut; i++ {
 		// создаём каналы и для каждого из них вызываем горутину Worker
@@ -55,7 +75,17 @@ func main() {
 	var wg sync.WaitGroup
 
 	// 4. Собираем числа из каналов outs
-	// ...
+	wg.Add(NumOut)
+	for i := 0; i < NumOut; i++ {
+		out := outs[i]
+		go func(i int) {
+			defer wg.Done()
+			for num := range out {
+				chOut <- num
+				amounts[i] += 1
+			}
+		}(i)
+	}
 
 	go func() {
 		// ждём завершения работы всех горутин для outs
@@ -68,7 +98,10 @@ func main() {
 	var sum int64   // сумма чисел результирующего канала
 
 	// 5. Читаем числа из результирующего канала
-	// ...
+	for num := range chOut {
+		count += 1
+		sum += num
+	}
 
 	fmt.Println("Количество чисел", inputCount, count)
 	fmt.Println("Сумма чисел", inputSum, sum)
@@ -85,6 +118,6 @@ func main() {
 		inputCount -= v
 	}
 	if inputCount != 0 {
-		log.Fatalf("Ошибка: разделение чисел по каналам неверное\n")
+		log.Fatalf("Ошибка: разделение чисел по каналам неверное\n %v", inputCount)
 	}
 }
